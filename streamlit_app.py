@@ -4,11 +4,11 @@ from dateutil.relativedelta import relativedelta
 import pandas as pd
 import altair as alt
 
-st.set_page_config(page_title="Mortgage Calculator", page_icon="🏠", layout="wide")
+st.set_page_config(page_title="Calculator Ipotecar", page_icon="🏠", layout="wide")
 
 # Row 1: Title
-st.title("🏠 Mortgage Calculator")
-st.write("Calculate your monthly mortgage payment and total loan costs")
+st.title("🏠 Calculator Ipotecar")
+st.write("Calculează plata lunară a creditului ipotecar și costurile totale ale creditului")
 
 # Currency selector (will be set in input column)
 currency_options = {
@@ -23,11 +23,11 @@ currency_options = {
 col_input, col_output = st.columns([1, 1])
 
 with col_input:
-    st.header("Loan Details")
+    st.header("Detalii credit")
     
     # Currency selector in input column
     selected_currency = st.selectbox(
-        "Currency",
+        "Monedă",
         options=list(currency_options.keys()),
         index=0  # Default to EUR
     )
@@ -35,23 +35,23 @@ with col_input:
     
     # Home value input
     home_value = st.number_input(
-        f"Home Value ({currency_symbol})",
+        f"Valoarea imobilului ({currency_symbol})",
         min_value=0.0,
-        value=100000.0,
+        value=125000.0,
         step=10000.0,
         format="%.2f"
     )
     
     # Downpayment input with toggle between percentage and amount
     downpayment_type = st.radio(
-        "Downpayment Type",
-        ["Percentage", "Amount"],
+        "Tip avans",
+        ["Procent", "Sumă"],
         horizontal=True
     )
     
-    if downpayment_type == "Percentage":
+    if downpayment_type == "Procent":
         downpayment_pct = st.slider(
-            "Downpayment (%)",
+            "Avans (%)",
             min_value=0.0,
             max_value=100.0,
             value=0.0,
@@ -60,7 +60,7 @@ with col_input:
         downpayment_amount = home_value * (downpayment_pct / 100)
     else:
         downpayment_amount = st.number_input(
-            f"Downpayment Amount ({currency_symbol})",
+            f"Suma avansului ({currency_symbol})",
             min_value=0.0,
             max_value=home_value,
             value=0.0,
@@ -72,27 +72,27 @@ with col_input:
     # Loan amount (calculated or manual override)
     calculated_loan = home_value - downpayment_amount
     loan_amount = st.number_input(
-        f"Loan Amount ({currency_symbol})",
+        f"Suma creditului ({currency_symbol})",
         min_value=0.0,
         value=calculated_loan,
         step=10000.0,
         format="%.2f",
-        help="Automatically calculated as Home Value - Downpayment, but can be adjusted"
+        help="Calculată automat ca Valoarea imobilului - Avans, dar poate fi ajustată"
     )
     
     # Interest rate
     interest_rate = st.number_input(
-        "Annual Interest Rate (%)",
+        "Rata anuală a dobânzii (%)",
         min_value=0.0,
         max_value=20.0,
-        value=6.5,
+        value=4.5,
         step=0.1,
         format="%.2f"
     )
     
     # Loan term
     loan_term_years = st.number_input(
-        "Loan Term (Years)",
+        "Perioada creditului (ani)",
         min_value=1,
         max_value=50,
         value=30,
@@ -101,20 +101,30 @@ with col_input:
     
     # Start date
     start_date = st.date_input(
-        "Loan Start Date",
+        "Data începerii creditului",
         value=datetime.now().date(),
         min_value=datetime(2000, 1, 1).date(),
         max_value=datetime(2100, 12, 31).date()
     )
     
-    # Payment deferral period
-    deferral_months = st.number_input(
-        "Payment Deferral Period (Months)",
+    # Grace period (no interest, no payments)
+    grace_months = st.number_input(
+        "Perioadă de grație (luni)",
         min_value=0,
         max_value=120,
         value=0,
         step=1,
-        help="Number of months to defer payments while still accruing interest"
+        help="Numărul de luni fără plăți și fără acumulare de dobândă"
+    )
+    
+    # Payment deferral period (interest accrues, no payments)
+    deferral_months = st.number_input(
+        "Perioadă amânare plăți (luni)",
+        min_value=0,
+        max_value=120,
+        value=0,
+        step=1,
+        help="Numărul de luni pentru amânarea plăților în timp ce dobânda se acumulează compus lunar"
     )
 
 # Calculate mortgage details (outside column context)
@@ -126,10 +136,12 @@ if loan_amount > 0 and interest_rate > 0:
     total_payments = loan_term_years * 12
     
     # Calculate interest accrued during deferral period
+    # Grace period: no interest accrues
+    # Deferral period: compound interest accrues monthly
     if deferral_months > 0:
-        # Simple interest accrual during deferral
-        deferred_interest = loan_amount * monthly_rate * deferral_months
-        adjusted_principal = loan_amount + deferred_interest
+        # Compound interest accrual during deferral (more accurate for mortgages)
+        adjusted_principal = loan_amount * ((1 + monthly_rate) ** deferral_months)
+        deferred_interest = adjusted_principal - loan_amount
     else:
         deferred_interest = 0
         adjusted_principal = loan_amount
@@ -150,27 +162,78 @@ if loan_amount > 0 and interest_rate > 0:
     total_interest = total_amount_paid - loan_amount
     
     # Calculate payoff date
-    first_payment_date = datetime.combine(start_date, datetime.min.time()) + relativedelta(months=deferral_months)
+    # First payment is after grace period + deferral period
+    first_payment_date = datetime.combine(start_date, datetime.min.time()) + relativedelta(months=grace_months + deferral_months)
     payoff_date = first_payment_date + relativedelta(months=total_payments)
     
     # Generate amortization schedule
-    schedule_data = []
+    schedule_data = []  # For chart (sampled)
+    detailed_schedule_data = []  # For detailed monthly table (all months)
+    
+    month_counter = 1
+    current_date = datetime.combine(start_date, datetime.min.time())
+    
+    # Phase 1: Grace period (no interest accrues, no payments)
+    balance = loan_amount
+    for grace_month in range(grace_months):
+        payment_date = current_date + relativedelta(months=grace_month)
+        detailed_schedule_data.append({
+            "Lună": month_counter,
+            "Data": payment_date.strftime("%b %Y"),
+            "Plată principal": 0,
+            "Dobândă": 0,
+            "Plată totală": 0,
+            "Sold rămas": balance,
+            "Status": "Grație"
+        })
+        month_counter += 1
+    
+    # Phase 2: Deferral period (interest accrues monthly, no payments)
+    for deferral_month in range(deferral_months):
+        payment_date = current_date + relativedelta(months=grace_months + deferral_month)
+        interest_accrued = balance * monthly_rate
+        balance += interest_accrued
+        detailed_schedule_data.append({
+            "Lună": month_counter,
+            "Data": payment_date.strftime("%b %Y"),
+            "Plată principal": 0,
+            "Dobândă": interest_accrued,
+            "Plată totală": 0,
+            "Sold rămas": balance,
+            "Status": "Amânare"
+        })
+        month_counter += 1
+    
+    # Phase 3: Regular payment period
     balance = adjusted_principal
     cumulative_interest = 0
     cumulative_principal = 0
     
-    for month in range(1, total_payments + 1):
+    for payment_month in range(1, total_payments + 1):
         interest_payment = balance * monthly_rate
         principal_payment = monthly_payment - interest_payment
         balance -= principal_payment
         cumulative_interest += interest_payment
         cumulative_principal += principal_payment
         
-        # Store every month for detailed chart, but we can sample for very long loans
-        if total_payments <= 360 or month % max(1, total_payments // 360) == 0 or month == total_payments:
-            payment_date = first_payment_date + relativedelta(months=month-1)
+        payment_date = first_payment_date + relativedelta(months=payment_month-1)
+        
+        # Store detailed data for every month (for table)
+        detailed_schedule_data.append({
+            "Lună": month_counter,
+            "Data": payment_date.strftime("%b %Y"),
+            "Plată principal": principal_payment,
+            "Dobândă": interest_payment,
+            "Plată totală": monthly_payment,
+            "Sold rămas": max(0, balance),
+            "Status": "Plată"
+        })
+        month_counter += 1
+        
+        # Store sampled data for chart visualization
+        if total_payments <= 360 or payment_month % max(1, total_payments // 360) == 0 or payment_month == total_payments:
             schedule_data.append({
-                "Month": month,
+                "Month": payment_month,
                 "Date": payment_date,
                 "Balance": max(0, balance),  # Ensure no negative balance due to rounding
                 "Principal": cumulative_principal,
@@ -178,10 +241,11 @@ if loan_amount > 0 and interest_rate > 0:
             })
     
     amortization_df = pd.DataFrame(schedule_data)
+    detailed_amortization_df = pd.DataFrame(detailed_schedule_data)
 
 # Row 1 (continued): Display chart after title
 if loan_amount > 0 and interest_rate > 0:
-    st.subheader("Loan Amortization Over Time")
+    st.subheader("Amortizarea creditului în timp")
     
     # Create chart data in long format for Altair
     chart_data = pd.DataFrame({
@@ -192,73 +256,86 @@ if loan_amount > 0 and interest_rate > 0:
             amortization_df["Interest"].tolist()
         ),
         "Type": (
-            ["Balance"] * len(amortization_df) + 
-            ["Principal Paid"] * len(amortization_df) + 
-            ["Interest Paid"] * len(amortization_df)
+            ["Sold"] * len(amortization_df) + 
+            ["Principal plătit"] * len(amortization_df) + 
+            ["Dobândă plătită"] * len(amortization_df)
         )
     })
     
     # Create interactive bar chart with Altair
     chart = alt.Chart(chart_data).mark_bar(size=20).encode(
-        x=alt.X("Date:T", title="Date", axis=alt.Axis(format="%b %Y")),
-        y=alt.Y("Amount:Q", title="Amount ($)"),
-        color=alt.Color("Type:N", title="Category"),
+        x=alt.X("Date:T", title="Data", axis=alt.Axis(format="%b %Y")),
+        y=alt.Y("Amount:Q", title="Sumă"),
+        color=alt.Color("Type:N", title="Categorie"),
         tooltip=[
-            alt.Tooltip("Date:T", title="Date", format="%B %Y"),
-            alt.Tooltip("Type:N", title="Category"),
-            alt.Tooltip("Amount:Q", title="Amount", format=",.2f")
+            alt.Tooltip("Date:T", title="Data", format="%B %Y"),
+            alt.Tooltip("Type:N", title="Categorie"),
+            alt.Tooltip("Amount:Q", title="Sumă", format=",.2f")
         ]
     ).properties(
         height=400
     ).interactive()
     
     st.altair_chart(chart, use_container_width=True)
+    
+    # Detailed monthly payment schedule table
+    st.subheader("Scadentar lunar detaliat")
+    
+    # Format the detailed schedule for display
+    display_df = detailed_amortization_df.copy()
+    display_df["Plată principal"] = display_df["Plată principal"].apply(lambda x: f"{currency_symbol}{x:,.2f}")
+    display_df["Dobândă"] = display_df["Dobândă"].apply(lambda x: f"{currency_symbol}{x:,.2f}")
+    display_df["Plată totală"] = display_df["Plată totală"].apply(lambda x: f"{currency_symbol}{x:,.2f}")
+    display_df["Sold rămas"] = display_df["Sold rămas"].apply(lambda x: f"{currency_symbol}{x:,.2f}")
+    
+    st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
 
 # Row 2: Right column - Output metrics (reuse the col_output from above)
 with col_output:
-    st.header("Calculation Results")
+    st.header("Rezultate calcul")
     
     if loan_amount > 0 and interest_rate > 0:
         st.metric(
-            "Monthly Payment",
+            "Plată lunară",
             f"{currency_symbol}{monthly_payment:,.2f}"
         )
         
         st.metric(
-            "First Payment Date",
-            first_payment_date.strftime("%B %d, %Y")
+            "Data primei plăți",
+            first_payment_date.strftime("%d %B %Y")
         )
         
         st.metric(
-            "Loan Payoff Date",
-            payoff_date.strftime("%B %d, %Y")
+            "Data finalizării creditului",
+            payoff_date.strftime("%d %B %Y")
         )
         
         st.metric(
-            "Total Interest Paid",
+            "Total dobândă plătită",
             f"{currency_symbol}{total_interest:,.2f}"
         )
         
         st.metric(
-            "Total Amount Paid",
+            "Suma totală plătită",
             f"{currency_symbol}{total_amount_paid:,.2f}"
         )
         
         # Additional summary
         st.divider()
-        st.subheader("Summary")
+        st.subheader("Rezumat")
         
         summary_data = {
-            "Item": [
-                "Home Value",
-                "Downpayment",
-                "Downpayment %",
-                "Loan Amount",
-                "Interest Rate",
-                "Loan Term",
-                "Deferral Period",
-                "Interest During Deferral",
-                "Adjusted Principal"
+            "Parametru": [
+                "Valoarea imobilului",
+                "Avans",
+                "Avans %",
+                "Suma creditului",
+                "Rata dobânzii",
+                "Perioada creditului",
+                "Perioadă de grație",
+                "Perioadă amânare",
+                "Dobândă acumulată în perioada de amânare",
+                "Principal ajustat"
             ],
             "Value": [
                 f"{currency_symbol}{home_value:,.2f}",
@@ -266,8 +343,9 @@ with col_output:
                 f"{downpayment_pct:.2f}%",
                 f"{currency_symbol}{loan_amount:,.2f}",
                 f"{interest_rate:.2f}%",
-                f"{loan_term_years} years",
-                f"{deferral_months} months",
+                f"{loan_term_years} ani",
+                f"{grace_months} luni",
+                f"{deferral_months} luni",
                 f"{currency_symbol}{deferred_interest:,.2f}",
                 f"{currency_symbol}{adjusted_principal:,.2f}"
             ]
@@ -277,4 +355,4 @@ with col_output:
         st.dataframe(df, hide_index=True, use_container_width=True)
         
     else:
-        st.warning("Please enter valid loan amount and interest rate to calculate mortgage details.")
+        st.warning("Te rog introdu o sumă validă a creditului și o rată a dobânzii pentru a calcula detaliile ipotecare.")
