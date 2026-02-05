@@ -112,7 +112,7 @@ with col_input:
         "Perioadă de grație (luni)",
         min_value=0,
         max_value=120,
-        value=0,
+        value=12,
         step=1,
         help="Numărul de luni fără plăți și fără acumulare de dobândă"
     )
@@ -122,7 +122,7 @@ with col_input:
         "Perioadă amânare plăți (luni)",
         min_value=0,
         max_value=120,
-        value=0,
+        value=12,
         step=1,
         help="Numărul de luni pentru amânarea plăților în timp ce dobânda se acumulează compus lunar"
     )
